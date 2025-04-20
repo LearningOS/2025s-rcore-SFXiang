@@ -15,10 +15,13 @@ mod switch;
 mod task;
 
 use crate::config::MAX_APP_NUM;
+use crate::config::MAX_SYSCALL_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
 use switch::__switch;
+extern crate alloc;
+use alloc::vec::Vec;  // 从alloc导入[3](@ref)
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
@@ -42,19 +45,26 @@ pub struct TaskManager {
 /// Inner of Task Manager
 pub struct TaskManagerInner {
     /// task list
-    tasks: [TaskControlBlock; MAX_APP_NUM],
+    // tasks: [TaskControlBlock; MAX_APP_NUM], // 任务列表
+    tasks: Vec<TaskControlBlock>, // 任务列表
     /// id of current `Running` task
-    current_task: usize,
+    current_task: usize, // 当前任务是哪个
 }
 
 lazy_static! {
     /// Global variable: TASK_MANAGER
     pub static ref TASK_MANAGER: TaskManager = {
         let num_app = get_num_app();
-        let mut tasks = [TaskControlBlock {
-            task_cx: TaskContext::zero_init(),
+        // let mut tasks = [TaskControlBlock {
+        //     task_cx: TaskContext::zero_init(),
+        //     task_status: TaskStatus::UnInit,
+        //     syscall_count: [0; MAX_SYSCALL_NUM],
+        // }; MAX_APP_NUM];
+        let mut tasks = (0..MAX_APP_NUM).map(|_| TaskControlBlock {
             task_status: TaskStatus::UnInit,
-        }; MAX_APP_NUM];
+            task_cx: TaskContext::zero_init(),
+            syscall_count: [0; MAX_SYSCALL_NUM],
+        }).collect::<Vec<_>>();
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
             task.task_status = TaskStatus::Ready;
@@ -77,7 +87,7 @@ impl TaskManager {
     /// Generally, the first task in task list is an idle task (we call it zero process later).
     /// But in ch3, we load apps statically, so the first task is a real app.
     fn run_first_task(&self) -> ! {
-        let mut inner = self.inner.exclusive_access();
+        let mut inner = self.inner.exclusive_access(); // exclusive_access 独占访问
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
@@ -94,7 +104,7 @@ impl TaskManager {
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        inner.tasks[current].task_status = TaskStatus::Ready;
+        inner.tasks[current].task_status = TaskStatus::Ready; // 将当前任务状态从Running置为Ready
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -110,7 +120,7 @@ impl TaskManager {
     fn find_next_task(&self) -> Option<usize> {
         let inner = self.inner.exclusive_access();
         let current = inner.current_task;
-        (current + 1..current + self.num_app + 1)
+        (current + 1..current + self.num_app + 1) // 从下一个开始找
             .map(|id| id % self.num_app)
             .find(|id| inner.tasks[*id].task_status == TaskStatus::Ready)
     }
@@ -134,6 +144,19 @@ impl TaskManager {
         } else {
             panic!("All applications completed!");
         }
+    }
+
+    // 获取当前任务的管理结构 TaskControlBlock
+    fn get_current_task_control_block(&self) -> Option<TaskControlBlock> {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        return Some(inner.tasks[current]);
+    }
+    // 获取当前任务状态
+    fn get_current_task_status(&self) -> TaskStatus {
+        let inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        return inner.tasks[current].task_status;
     }
 }
 
@@ -168,4 +191,14 @@ pub fn suspend_current_and_run_next() {
 pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
+}
+
+/// get_current_task_control_block.
+pub fn get_current_task_control_block() -> Option<TaskControlBlock> {
+    return TASK_MANAGER.get_current_task_control_block();
+}
+
+/// get_current_task_status.
+pub fn get_current_task_status() -> TaskStatus {
+    return TASK_MANAGER.get_current_task_status();
 }

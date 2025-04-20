@@ -1,15 +1,20 @@
 //! Types related to task management
 
 use super::TaskContext;
-
+// use core::iter::Iterator;
+use crate::config::MAX_SYSCALL_NUM;
 /// The task control block (TCB) of a task.
 #[derive(Copy, Clone)]
 pub struct TaskControlBlock {
     /// The task status in it's lifecycle
-    pub task_status: TaskStatus,
+    pub task_status: TaskStatus, // 任务状态
     /// The task context
-    pub task_cx: TaskContext,
+    pub task_cx: TaskContext, // 任务状态现场
+
+    /// The task's syscall count
+    pub syscall_count: [usize; MAX_SYSCALL_NUM], // 任务系统调用次数
 }
+
 
 /// The status of a task
 #[derive(Copy, Clone, PartialEq)]
